@@ -5,17 +5,29 @@ English | [中文](README.zh.md)
 ## Install
 
 ```sh
+# from npm (recommended)
+dsh plugin --profile <name> add dsh-ui-task-notify
+
+# from GitHub
 dsh plugin --profile <name> add github:ivvan3016/dsh-ui-task-notify
 ```
 
-Git installs fetch the source and rebuild it via `prepare`; pnpm blocks that build until the package is allowlisted. When the install fails with `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`, copy the **exact key pnpm prints** into the profile's `pnpm-workspace.yaml` and re-run the command:
+The npm package ships prebuilt artifacts and installs without any further setup. Git installs fetch the source and rebuild it via `prepare`; pnpm blocks that build until the package is allowlisted. When a git install fails with `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`, copy the **exact key pnpm prints** into the profile's `pnpm-workspace.yaml` and re-run the command:
 
 ```yaml
 allowBuilds:
   dsh-ui-task-notify@https://codeload.github.com/ivvan3016/dsh-ui-task-notify/tar.gz/<commit-hash>: true
 ```
 
-The key is bound to one resolved commit — a bare package name does not match, and it changes only when you update the dependency to a newer commit. Once published to npm, `dsh plugin --profile <name> add dsh-ui-task-notify` needs no allowlist entry.
+The key is bound to one resolved commit — a bare package name does not match, and it changes only when you update the dependency to a newer commit.
+
+## Uninstall
+
+```sh
+dsh plugin --profile <name> remove dsh-ui-task-notify
+```
+
+Removing the plugin drops its bundle layer and removes the package from the profile.
 
 Web task-complete alert plugin: when an agent finishes while the page is hidden, it raises a browser (Windows) notification — a system toast that carries its own sound and stays visible even while the whole window is minimized. It renders nothing beyond its settings card and issues no RPC: the trigger is the host-authoritative **agent idle signal** already streamed to the browser — the Host pushes `host/session-status` frames from `agent/status`, the client runtime folds them into each list row's `running` bit, and this package watches `ctx.sessions.list` for the running→idle edge. Because `running` spans the driver's whole drain interval, a multi-turn goal alerts exactly once, at true quiescence, rather than once per turn.
 

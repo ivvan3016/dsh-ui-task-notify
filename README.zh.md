@@ -5,17 +5,29 @@
 ## Install
 
 ```sh
+# 从 npm 安装（推荐）
+dsh plugin --profile <name> add dsh-ui-task-notify
+
+# 从 GitHub 安装
 dsh plugin --profile <name> add github:ivvan3016/dsh-ui-task-notify
 ```
 
-从 GitHub 安装会拉取源码并通过 `prepare` 脚本重新构建；pnpm 会拦截该构建，直到包被加入白名单。当安装报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` 时，把 pnpm 打印的**精确 key** 复制到 profile 的 `pnpm-workspace.yaml`，然后重新执行命令：
+npm 包自带构建产物，安装即可用，无需额外配置。从 GitHub 安装会拉取源码并通过 `prepare` 脚本重新构建；pnpm 会拦截该构建，直到包被加入白名单。当安装报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` 时，把 pnpm 打印的**精确 key** 复制到 profile 的 `pnpm-workspace.yaml`，然后重新执行命令：
 
 ```yaml
 allowBuilds:
   dsh-ui-task-notify@https://codeload.github.com/ivvan3016/dsh-ui-task-notify/tar.gz/<commit-hash>: true
 ```
 
-该 key 与解析出的具体 commit 绑定——仅写包名不会匹配，且只有把依赖更新到更新的 commit 时它才会变化。发布到 npm 后，`dsh plugin --profile <name> add dsh-ui-task-notify` 无需白名单条目。
+该 key 与解析出的具体 commit 绑定——仅写包名不会匹配，且只有把依赖更新到更新的 commit 时它才会变化。
+
+## Uninstall
+
+```sh
+dsh plugin --profile <name> remove dsh-ui-task-notify
+```
+
+卸载会移除该插件的 bundle 层并从 profile 中删除包。
 
 Web 任务完成提醒插件：当 agent 完成任务且页面处于后台时，它会弹出浏览器（Windows）系统通知——自带提示音、整个窗口最小化时也能显示的系统 toast。除了设置卡片外它不渲染任何内容、也不发起任何 RPC：触发信号是已经推送到浏览器的**宿主权威 agent 空闲信号**——宿主从 `agent/status` 推送 `host/session-status` 帧，客户端运行时将其折叠进列表每行的 `running` 位，本包监听 `ctx.sessions.list` 上的 running→idle 边沿。由于 `running` 覆盖驱动器的整个 drain 区间，多轮目标只在真正停稳时提醒一次，而不是每轮提醒一次。
 
