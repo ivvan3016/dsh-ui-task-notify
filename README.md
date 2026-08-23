@@ -6,10 +6,10 @@ English | [中文](README.zh.md)
 
 ```sh
 # from npm (recommended)
-dsh plugin --profile <name> add dsh-ui-task-notify
+dsh plugin --profile web add dsh-ui-task-notify
 
 # from GitHub
-dsh plugin --profile <name> add github:ivvan3016/dsh-ui-task-notify
+dsh plugin --profile web add github:ivvan3016/dsh-ui-task-notify
 ```
 
 The npm package ships prebuilt artifacts and installs without any further setup. Git installs fetch the source and rebuild it via `prepare`; pnpm blocks that build until the package is allowlisted. When a git install fails with `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`, copy the **exact key pnpm prints** into the profile's `pnpm-workspace.yaml` and re-run the command:
@@ -24,7 +24,7 @@ The key is bound to one resolved commit — a bare package name does not match, 
 ## Uninstall
 
 ```sh
-dsh plugin --profile <name> remove dsh-ui-task-notify
+dsh plugin --profile web remove dsh-ui-task-notify
 ```
 
 Removing the plugin drops its bundle layer and removes the package from the profile.

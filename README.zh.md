@@ -6,10 +6,10 @@
 
 ```sh
 # 从 npm 安装（推荐）
-dsh plugin --profile <name> add dsh-ui-task-notify
+dsh plugin --profile web add dsh-ui-task-notify
 
 # 从 GitHub 安装
-dsh plugin --profile <name> add github:ivvan3016/dsh-ui-task-notify
+dsh plugin --profile web add github:ivvan3016/dsh-ui-task-notify
 ```
 
 npm 包自带构建产物，安装即可用，无需额外配置。从 GitHub 安装会拉取源码并通过 `prepare` 脚本重新构建；pnpm 会拦截该构建，直到包被加入白名单。当安装报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` 时，把 pnpm 打印的**精确 key** 复制到 profile 的 `pnpm-workspace.yaml`，然后重新执行命令：
@@ -24,7 +24,7 @@ allowBuilds:
 ## Uninstall
 
 ```sh
-dsh plugin --profile <name> remove dsh-ui-task-notify
+dsh plugin --profile web remove dsh-ui-task-notify
 ```
 
 卸载会移除该插件的 bundle 层并从 profile 中删除包。
