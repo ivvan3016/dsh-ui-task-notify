@@ -1,7 +1,7 @@
 {
   "name": "dsh-ui-task-notify",
   "description": "Web task-complete alert: raises a Windows notification when an agent finishes while the page is hidden, with a Plugins-settings card",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
