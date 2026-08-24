@@ -42,10 +42,10 @@ Sanity-check built `lib/client.js` for: `__ModuleLoader__.load({ id: "dsh-ui-tas
 ## Testing
 
 - `host.client.spec.ts` — node half: settings registration; `describe()` returns the namespace.
-- `browser-plugin.client.spec.ts` — client bundle registration under a simulated browser module loader.
+- `browser-plugin.client.spec.ts` — client bundle registration under a simulated browser module loader, idle-edge and pending-interaction-edge detection, and the notification side effects.
 - `task-alert-card.client.spec.tsx` — renders the settings card component.
 
-Run all with `pnpm test`. After any build change, also spot-check the bundle (see Building).
+The specs import `@deepseek-ai/*` peers that exist at `0.1.0-rc.8` only in the deepseek-harness workspace, so they run from a temporary package inside that checkout (`packages/client/task-alert-local`, see `vitest.task-alert.local.ts` at the harness root). Sync the copied `tests/` and `src/` from this repo after editing, then run with the harness vitest config. After any build change, also spot-check the bundle (see Building).
 
 ## Settings Namespace
 

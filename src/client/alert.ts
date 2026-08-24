@@ -9,6 +9,9 @@ const NOTIFICATION_TAG = 'dsh-task-alert'
 /** Browser notification permission, plus the unsupported-environment case. */
 export type TaskAlertPermission = 'granted' | 'denied' | 'default' | 'unsupported'
 
+/** A user-facing interaction kind the plugin can alert on. */
+export type TaskAlertInteractionKind = 'approval' | 'question' | 'plan-review'
+
 /** The alert surface the watcher drives; created per plugin activation. */
 export interface TaskAlert {
   /**
@@ -16,6 +19,13 @@ export interface TaskAlert {
    * @param sessionTitle - the finishing session's display title, when known.
    */
   notify(sessionTitle?: string): void
+  /**
+   * React to one session waiting on the user, applying the current settings
+   * gates plus the interaction-alert preference.
+   * @param kind - the interaction kind, selecting the notification copy.
+   * @param sessionTitle - the waiting session's display title, when known.
+   */
+  notifyInteraction(kind: TaskAlertInteractionKind, sessionTitle?: string): void
   /** The current browser notification permission (unsupported when the API is absent). */
   notificationPermission(): TaskAlertPermission
   /**
@@ -24,6 +34,13 @@ export interface TaskAlert {
    * @returns the permission after the request settles.
    */
   requestNotificationPermission(): Promise<TaskAlertPermission>
+}
+
+/** Notification title key per interaction kind. */
+const INTERACTION_TITLE: Record<TaskAlertInteractionKind, TaskAlertKey> = {
+  approval: 'interaction.approval',
+  question: 'interaction.question',
+  'plan-review': 'interaction.plan-review',
 }
 
 /**
@@ -42,10 +59,10 @@ export function createTaskAlert(
   const permission = (): TaskAlertPermission =>
     typeof Notification === 'undefined' ? 'unsupported' : Notification.permission
 
-  const showNotification = (sessionTitle: string | undefined): void => {
+  const showNotification = (title: TaskAlertKey, body: string | undefined): void => {
     if (permission() !== 'granted') return
-    const notification = new Notification(translate('title.done'), {
-      ...(sessionTitle === undefined ? {} : { body: sessionTitle }),
+    const notification = new Notification(translate(title), {
+      ...(body === undefined ? {} : { body }),
       tag: NOTIFICATION_TAG,
     })
     notification.onclick = () => { window.focus() }
@@ -56,7 +73,14 @@ export function createTaskAlert(
       const settings = readSettings()
       if (!settings.enabled) return
       if (settings.onlyWhenHidden && !document.hidden) return
-      showNotification(sessionTitle)
+      showNotification('title.done', sessionTitle)
+    },
+    notifyInteraction(kind: TaskAlertInteractionKind, sessionTitle?: string): void {
+      const settings = readSettings()
+      if (!settings.enabled) return
+      if (!settings.interactionAlert) return
+      if (settings.onlyWhenHidden && !document.hidden) return
+      showNotification(INTERACTION_TITLE[kind], sessionTitle)
     },
     notificationPermission: permission,
     async requestNotificationPermission(): Promise<TaskAlertPermission> {

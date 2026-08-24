@@ -88,6 +88,7 @@ function cardState(over: Partial<TaskAlertCardState> = {}): TaskAlertCardState {
       enabled: field(),
       onlyWhenHidden: field(),
       includeSubagents: field({ checked: false }),
+      interactionAlert: field(),
     },
     ...over,
   }

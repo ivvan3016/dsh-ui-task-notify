@@ -29,6 +29,7 @@ interface SessionSeed {
   id: string
   running?: boolean
   origin?: 'subagent'
+  pendingInteraction?: string
 }
 
 /** Controllable sessions-list observable standing in for `ctx.sessions.list`. */
@@ -57,7 +58,10 @@ class FakeList {
         blank: false,
         updatedAt: 1,
         ...(seed.origin === undefined ? {} : { origin: seed.origin, parentId: 'p' as SessionId }),
-      }
+        ...(seed.pendingInteraction === undefined
+          ? {}
+          : { pendingInteraction: seed.pendingInteraction }),
+      } as SessionSummary
     }
     this.state = { ...this.state, ids: sessions.map(seed => seed.id as SessionId), byId }
     this.notify()
@@ -307,7 +311,8 @@ describe('idle watcher', () => {
   it('fires on running→idle edges, skips byId gaps, and prunes removed sessions', () => {
     const list = new FakeList()
     const onIdle = vi.fn()
-    const watcher = createIdleWatcher(list, () => false, onIdle)
+    const onInteraction = vi.fn()
+    const watcher = createIdleWatcher(list, () => false, onIdle, () => true, onInteraction)
     list.rawState({
       ids: ['missing' as SessionId], byId: {}, current: undefined, phase: 'ready',
       subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
@@ -327,8 +332,9 @@ describe('idle watcher', () => {
   it('filters subagent sessions by the live preference', () => {
     const list = new FakeList()
     const onIdle = vi.fn()
+    const onInteraction = vi.fn()
     let includeSubagents = false
-    const watcher = createIdleWatcher(list, () => includeSubagents, onIdle)
+    const watcher = createIdleWatcher(list, () => includeSubagents, onIdle, () => true, onInteraction)
     list.set([{ id: 'child', running: true, origin: 'subagent' }])
     list.set([{ id: 'child', running: false, origin: 'subagent' }])
     expect(onIdle).not.toHaveBeenCalled()
@@ -336,6 +342,43 @@ describe('idle watcher', () => {
     list.set([{ id: 'child', running: true, origin: 'subagent' }])
     list.set([{ id: 'child', running: false, origin: 'subagent' }])
     expect(onIdle).toHaveBeenCalledTimes(1)
+    watcher.dispose()
+  })
+
+  it('fires once per pending-interaction edge, keyed by status, and prunes on removal', () => {
+    const list = new FakeList()
+    const onIdle = vi.fn()
+    const onInteraction = vi.fn()
+    const watcher = createIdleWatcher(list, () => false, onIdle, () => true, onInteraction)
+    list.set([{ id: 'a' }])
+    list.set([{ id: 'a', pendingInteraction: 'question' }])
+    expect(onInteraction).toHaveBeenCalledTimes(1)
+    expect(onInteraction).toHaveBeenCalledWith('a', 'question', 'a')
+    // A repeated frame for the same status must not re-alert.
+    list.set([{ id: 'a', pendingInteraction: 'question' }])
+    expect(onInteraction).toHaveBeenCalledTimes(1)
+    // A different status is a fresh edge.
+    list.set([{ id: 'a', pendingInteraction: 'approval' }])
+    expect(onInteraction).toHaveBeenCalledTimes(2)
+    expect(onInteraction).toHaveBeenLastCalledWith('a', 'approval', 'a')
+    // Settling clears the ledger so a later re-ask re-alerts.
+    list.set([{ id: 'a' }])
+    list.set([{ id: 'a', pendingInteraction: 'question' }])
+    expect(onInteraction).toHaveBeenCalledTimes(3)
+    watcher.dispose()
+  })
+
+  it('skips interaction edges when the preference is off', () => {
+    const list = new FakeList()
+    const onIdle = vi.fn()
+    const onInteraction = vi.fn()
+    let interactionAlert = false
+    const watcher = createIdleWatcher(list, () => false, onIdle, () => interactionAlert, onInteraction)
+    list.set([{ id: 'a', pendingInteraction: 'approval' }])
+    expect(onInteraction).not.toHaveBeenCalled()
+    interactionAlert = true
+    list.set([{ id: 'a', pendingInteraction: 'approval' }])
+    expect(onInteraction).toHaveBeenCalledTimes(1)
     watcher.dispose()
   })
 })
@@ -385,6 +428,39 @@ describe('task alert engine', () => {
     expect(shown[0]!.options.body).toBeUndefined()
     instances[0]!.onclick?.()
     expect(focus).toHaveBeenCalled()
+  })
+
+  it('shows a kind-specific interaction notification, gated by the interaction preference', () => {
+    let settings = { ...DEFAULT_TASK_ALERT_SETTINGS }
+    const alert = createTaskAlert(
+      key => key === 'interaction.approval' ? 'approval-copy' : String(key),
+      () => settings,
+    )
+    const { shown } = stubNotification()
+    setHidden(true)
+    alert.notifyInteraction('approval', 's1')
+    expect(shown).toHaveLength(1)
+    expect(shown[0]!.title).toBe('approval-copy')
+    expect(shown[0]!.options.body).toBe('s1')
+    // The interaction preference off suppresses the notification.
+    settings = { ...settings, interactionAlert: false }
+    alert.notifyInteraction('question', 's2')
+    expect(shown).toHaveLength(1)
+    // The master switch off suppresses it too.
+    settings = { ...settings, interactionAlert: true, enabled: false }
+    alert.notifyInteraction('question', 's2')
+    expect(shown).toHaveLength(1)
+  })
+
+  it('stays silent for interaction edges while the page is visible', () => {
+    const alert = createTaskAlert(
+      key => String(key),
+      () => DEFAULT_TASK_ALERT_SETTINGS,
+    )
+    const { shown } = stubNotification()
+    setHidden(false)
+    alert.notifyInteraction('plan-review', 's1')
+    expect(shown).toHaveLength(0)
   })
 })
 

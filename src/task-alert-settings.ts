@@ -13,6 +13,8 @@ export interface TaskAlertSettings {
   onlyWhenHidden: boolean
   /** Also alert when a subagent session finishes; top-level sessions only by default. */
   includeSubagents: boolean
+  /** Also alert when a session is waiting on the user (approval, question, plan review). */
+  interactionAlert: boolean
 }
 
 /** Defaults applied before the first Host settings sync resolves the section. */
@@ -20,6 +22,7 @@ export const DEFAULT_TASK_ALERT_SETTINGS: TaskAlertSettings = {
   enabled: true,
   onlyWhenHidden: true,
   includeSubagents: false,
+  interactionAlert: true,
 }
 
 /** Durable task-alert schema; also the wire envelope the browser scope validates against. */
@@ -27,4 +30,5 @@ export const TaskAlertSettingsSchema: z<TaskAlertSettings> = z.object({
   enabled: z.boolean().default(true),
   onlyWhenHidden: z.boolean().default(true),
   includeSubagents: z.boolean().default(false),
+  interactionAlert: z.boolean().default(true),
 })

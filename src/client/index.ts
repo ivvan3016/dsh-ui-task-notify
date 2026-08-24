@@ -1,10 +1,10 @@
 /**
  * Task-complete alert plugin, browser half: watches the sessions list for
- * agent running→idle edges and, while the page is hidden, flashes the
- * document title and plays a Web Audio beep. The behavior gates are durable
- * preferences in the `ui-task-alert` settings namespace, editable through the
- * card this half registers in the Plugins configuration tab; the package
- * issues no RPC and renders nothing outside that card.
+ * agent running→idle edges and for sessions waiting on the user, and, while
+ * the page is hidden, raises a browser (Windows) notification. The behavior
+ * gates are durable preferences in the `ui-task-alert` settings namespace,
+ * editable through the card this half registers in the Plugins configuration
+ * tab; the package issues no RPC and renders nothing outside that card.
  */
 import type { ClientContext, SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: the ctx.settingsScope Context merge. Cross-plugin collaboration
@@ -60,6 +60,8 @@ export function apply(ctx: ClientContext): void {
     ctx.sessions.list,
     () => readSettings(scope).includeSubagents,
     (_sessionId, sessionTitle) => { alert.notify(sessionTitle) },
+    () => readSettings(scope).interactionAlert,
+    (_sessionId, kind, sessionTitle) => { alert.notifyInteraction(kind, sessionTitle) },
   )
   ctx.effect(() => () => {
     watcher.dispose()

@@ -15,7 +15,7 @@ import {
 } from '../task-alert-settings.ts'
 
 /** The boolean fields this card edits, in render order. */
-export const TASK_ALERT_FIELDS = ['enabled', 'onlyWhenHidden', 'includeSubagents'] as const
+export const TASK_ALERT_FIELDS = ['enabled', 'onlyWhenHidden', 'includeSubagents', 'interactionAlert'] as const
 
 /** One field of the `ui-task-alert` section. */
 export type TaskAlertField = typeof TASK_ALERT_FIELDS[number]
