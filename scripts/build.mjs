@@ -11,7 +11,7 @@
  * deliberately not regenerated: the npm/tarball artifacts carry .d.ts from
  * the monorepo build.
  */
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { build } from 'esbuild'
 
@@ -96,11 +96,3 @@ await build({
   footer: { js: 'return module.exports; } });' },
   logLevel: 'warning',
 })
-
-// Strip esbuild's `// cssmod:<absolute path>` module annotation from the
-// browser bundle: it leaks the local build directory into the published
-// artifact, so remove those comment lines before writing.
-const clientPath = resolve('lib/client.js')
-const clientCode = await readFile(clientPath, 'utf8')
-const cleaned = clientCode.replace(/^\/\/ cssmod:.*$/gm, '')
-await writeFile(clientPath, cleaned)
