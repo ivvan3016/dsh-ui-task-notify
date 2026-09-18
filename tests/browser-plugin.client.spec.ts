@@ -7,16 +7,14 @@
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
-import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
-import InvariantRegistry from '@deepseek-ai/dsh-invariants'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
-import type {
-  SessionId, SessionListState, SessionSummary, SettingsScopeSnapshot,
-} from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { apply, inject } from '../src/client/index.ts'
 import { apply as applyNode } from '../src/index.ts'
-import * as AlertInvariant from '../src/invariant.ts'
-import { createIdleWatcher } from '../src/client/watcher.ts'
+import { createIdleWatcher, type PendingInteractionView } from '../src/client/watcher.ts'
 import { createTaskAlert } from '../src/client/alert.ts'
 import { en, NS, zh } from '../src/client/locales.ts'
 import {
@@ -29,7 +27,6 @@ interface SessionSeed {
   id: string
   running?: boolean
   origin?: 'subagent'
-  pendingInteraction?: string
 }
 
 /** Controllable sessions-list observable standing in for `ctx.sessions.list`. */
@@ -58,9 +55,6 @@ class FakeList {
         blank: false,
         updatedAt: 1,
         ...(seed.origin === undefined ? {} : { origin: seed.origin, parentId: 'p' as SessionId }),
-        ...(seed.pendingInteraction === undefined
-          ? {}
-          : { pendingInteraction: seed.pendingInteraction }),
       } as SessionSummary
     }
     this.state = { ...this.state, ids: sessions.map(seed => seed.id as SessionId), byId }
@@ -74,6 +68,28 @@ class FakeList {
   }
 
   private notify(): void {
+    for (const fn of [...this.listeners]) fn()
+  }
+}
+
+/** Controllable pending-interaction observable standing in for `ctx.uiSession`. */
+class FakeInteractions {
+  private state: ReadonlyMap<SessionId, PendingInteractionView> = new Map()
+  private readonly listeners = new Set<() => void>()
+
+  getSnapshot(): ReadonlyMap<SessionId, PendingInteractionView> { return this.state }
+
+  subscribe(fn: () => void): () => void {
+    this.listeners.add(fn)
+    return () => { this.listeners.delete(fn) }
+  }
+
+  /** Replace the waiting-set wholesale and notify. */
+  set(entries: readonly { id: string; kind: string }[]): void {
+    this.state = new Map(entries.map(entry => [
+      entry.id as SessionId,
+      { kind: entry.kind } satisfies PendingInteractionView,
+    ]))
     for (const fn of [...this.listeners]) fn()
   }
 }
@@ -124,6 +140,9 @@ class FakeScope {
     for (const fn of [...this.listeners]) fn()
     return Promise.resolve()
   }
+
+  /** The card never mutates path-addressed; the batch write path is a no-op stub. */
+  mutate(): Promise<void> { return Promise.resolve() }
 }
 
 /** Hide/shown state behind `document.hidden`. */
@@ -135,6 +154,7 @@ interface Bench {
   ctx: Context
   fiber: ReturnType<Context['plugin']>
   list: FakeList
+  interactions: FakeInteractions
   scope: FakeScope
 }
 
@@ -163,17 +183,19 @@ function stubNotification(permission: NotificationPermission = 'granted'): {
 async function bench(value?: TaskAlertSettings): Promise<Bench> {
   const ctx = new Context()
   const list = new FakeList()
+  const interactions = new FakeInteractions()
   const scope = new FakeScope(value)
   await ctx.plugin(SlotRegistry).await()
   ctx.slots.register({
     name: 'root',
     children: {
-      'conversation.session.header.actions': { kind: 'list', scope: 'session' },
+      // The locale plugin owns its General-section preference row.
+      'settings.general.item': { kind: 'list', scope: 'root' },
       'settings.plugin.item': { kind: 'keyed', scope: 'root' },
     },
   } as never, () => null)
   ctx.provide('sessions', { list } as never)
-  ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
+  ctx.provide('uiSession', { pendingInteractions: interactions } as never)
   ctx.provide('remote', { $on: () => () => {} } as never)
   ctx.provide('settingsScope', {
     bind: (spec: { namespace: string }) =>
@@ -183,7 +205,7 @@ async function bench(value?: TaskAlertSettings): Promise<Bench> {
   ctx.locale.setLocale('zh')
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
-  return { ctx, fiber, list, scope }
+  return { ctx, fiber, list, interactions, scope }
 }
 
 beforeEach(() => {
@@ -196,7 +218,7 @@ afterEach(() => {
 
 describe('ui-task-alert browser half', () => {
   it('declares the services it binds', () => {
-    expect(inject).toEqual(['sessions', 'settingsScope', 'locale', 'slots'])
+    expect(inject).toEqual(['sessions', 'uiSession', 'settingsScope', 'locale', 'slots'])
   })
 
   it('registers the Plugins card under its namespace and releases it with the fiber', async () => {
@@ -310,9 +332,10 @@ describe('ui-task-alert browser half', () => {
 describe('idle watcher', () => {
   it('fires on running→idle edges, skips byId gaps, and prunes removed sessions', () => {
     const list = new FakeList()
+    const interactions = new FakeInteractions()
     const onIdle = vi.fn()
     const onInteraction = vi.fn()
-    const watcher = createIdleWatcher(list, () => false, onIdle, () => true, onInteraction)
+    const watcher = createIdleWatcher(list, interactions, () => false, onIdle, () => true, onInteraction)
     list.rawState({
       ids: ['missing' as SessionId], byId: {}, current: undefined, phase: 'ready',
       subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
@@ -331,10 +354,11 @@ describe('idle watcher', () => {
 
   it('filters subagent sessions by the live preference', () => {
     const list = new FakeList()
+    const interactions = new FakeInteractions()
     const onIdle = vi.fn()
     const onInteraction = vi.fn()
     let includeSubagents = false
-    const watcher = createIdleWatcher(list, () => includeSubagents, onIdle, () => true, onInteraction)
+    const watcher = createIdleWatcher(list, interactions, () => includeSubagents, onIdle, () => true, onInteraction)
     list.set([{ id: 'child', running: true, origin: 'subagent' }])
     list.set([{ id: 'child', running: false, origin: 'subagent' }])
     expect(onIdle).not.toHaveBeenCalled()
@@ -345,39 +369,57 @@ describe('idle watcher', () => {
     watcher.dispose()
   })
 
-  it('fires once per pending-interaction edge, keyed by status, and prunes on removal', () => {
+  it('fires once per pending-interaction kind, keyed by kind, and prunes on removal', () => {
     const list = new FakeList()
+    const interactions = new FakeInteractions()
     const onIdle = vi.fn()
     const onInteraction = vi.fn()
-    const watcher = createIdleWatcher(list, () => false, onIdle, () => true, onInteraction)
+    const watcher = createIdleWatcher(list, interactions, () => false, onIdle, () => true, onInteraction)
     list.set([{ id: 'a' }])
-    list.set([{ id: 'a', pendingInteraction: 'question' }])
+    interactions.set([{ id: 'a', kind: 'question' }])
     expect(onInteraction).toHaveBeenCalledTimes(1)
     expect(onInteraction).toHaveBeenCalledWith('a', 'question', 'a')
-    // A repeated frame for the same status must not re-alert.
-    list.set([{ id: 'a', pendingInteraction: 'question' }])
+    // A repeated publication of the same kind must not re-alert.
+    interactions.set([{ id: 'a', kind: 'question' }])
     expect(onInteraction).toHaveBeenCalledTimes(1)
-    // A different status is a fresh edge.
-    list.set([{ id: 'a', pendingInteraction: 'approval' }])
+    // A different kind is a fresh edge.
+    interactions.set([{ id: 'a', kind: 'approval' }])
     expect(onInteraction).toHaveBeenCalledTimes(2)
     expect(onInteraction).toHaveBeenLastCalledWith('a', 'approval', 'a')
     // Settling clears the ledger so a later re-ask re-alerts.
-    list.set([{ id: 'a' }])
-    list.set([{ id: 'a', pendingInteraction: 'question' }])
+    interactions.set([])
+    interactions.set([{ id: 'a', kind: 'question' }])
     expect(onInteraction).toHaveBeenCalledTimes(3)
+    watcher.dispose()
+  })
+
+  it('ignores interaction kinds this plugin ships no copy for', () => {
+    const list = new FakeList()
+    const interactions = new FakeInteractions()
+    const onIdle = vi.fn()
+    const onInteraction = vi.fn()
+    const watcher = createIdleWatcher(list, interactions, () => false, onIdle, () => true, onInteraction)
+    list.set([{ id: 'a' }])
+    interactions.set([{ id: 'a', kind: 'credential' }])
+    expect(onInteraction).not.toHaveBeenCalled()
+    // An unknown kind does not mask the alertable one that follows it.
+    interactions.set([{ id: 'a', kind: 'approval' }])
+    expect(onInteraction).toHaveBeenCalledTimes(1)
     watcher.dispose()
   })
 
   it('skips interaction edges when the preference is off', () => {
     const list = new FakeList()
+    const interactions = new FakeInteractions()
     const onIdle = vi.fn()
     const onInteraction = vi.fn()
     let interactionAlert = false
-    const watcher = createIdleWatcher(list, () => false, onIdle, () => interactionAlert, onInteraction)
-    list.set([{ id: 'a', pendingInteraction: 'approval' }])
+    const watcher = createIdleWatcher(list, interactions, () => false, onIdle, () => interactionAlert, onInteraction)
+    list.set([{ id: 'a' }])
+    interactions.set([{ id: 'a', kind: 'approval' }])
     expect(onInteraction).not.toHaveBeenCalled()
     interactionAlert = true
-    list.set([{ id: 'a', pendingInteraction: 'approval' }])
+    interactions.set([{ id: 'a', kind: 'approval' }])
     expect(onInteraction).toHaveBeenCalledTimes(1)
     watcher.dispose()
   })
@@ -467,18 +509,5 @@ describe('task alert engine', () => {
 describe('ui-task-alert node half', () => {
   it('contributes no host behavior beyond the settings registration', () => {
     expect(() => { applyNode(new Context()) }).not.toThrow()
-  })
-})
-
-describe('ui-task-alert invariant companion', () => {
-  it('reserves package ownership under its declared companion name', async () => {
-    const ctx = new Context()
-    await ctx.plugin(InvariantRegistry, { enabled: true })
-    const fiber = ctx.plugin(AlertInvariant)
-    await fiber.await()
-    expect(AlertInvariant.name).toBe('dsh-ui-task-notify-invariant')
-    expect(AlertInvariant.inject).toEqual(['invariants'])
-    expect(() => { (ctx.emit as (event: string) => void)('slots/changed') }).not.toThrow()
-    await fiber.dispose()
   })
 })

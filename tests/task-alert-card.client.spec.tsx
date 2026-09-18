@@ -70,6 +70,9 @@ class FakeScope {
     for (const fn of [...this.listeners]) fn()
     return Promise.resolve()
   }
+
+  /** The card never mutates path-addressed; the batch write path is a no-op stub. */
+  mutate(): Promise<void> { return Promise.resolve() }
 }
 
 function field(over: Partial<TaskAlertFieldState> = {}): TaskAlertFieldState {

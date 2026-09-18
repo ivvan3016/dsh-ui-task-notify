@@ -1,6 +1,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
-import { SettingsProvider, settingsNamespace, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
+import { SettingsProvider } from '@deepseek-ai/dsh-settings'
+import type { SettingsNamespace } from '@deepseek-ai/dsh-settings/types'
 import {
   DEFAULT_TASK_ALERT_SETTINGS, TASK_ALERT_SETTINGS_NAMESPACE, apply,
 } from '../src/index.ts'
@@ -19,7 +20,7 @@ describe('ui-task-alert host', () => {
     await ctx.plugin(MemorySettings).await()
     const fiber = ctx.plugin({ apply })
     await fiber.await()
-    const ns = settingsNamespace(TASK_ALERT_SETTINGS_NAMESPACE)
+    const ns = TASK_ALERT_SETTINGS_NAMESPACE
     expect(ctx.settings.get(ns)).toEqual(DEFAULT_TASK_ALERT_SETTINGS)
     await ctx.settings.update(ns, { includeSubagents: true })
     expect(ctx.settings.get(ns)).toEqual({ ...DEFAULT_TASK_ALERT_SETTINGS, includeSubagents: true })

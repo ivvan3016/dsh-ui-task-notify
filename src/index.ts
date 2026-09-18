@@ -1,7 +1,8 @@
 /** Host registration for the browser task-complete alert preferences. */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
+// Type-only: the ctx.settings Context merge owned by the settings service.
+import type {} from '@deepseek-ai/dsh-settings'
 import { TASK_ALERT_SETTINGS_NAMESPACE, TaskAlertSettingsSchema } from './task-alert-settings.ts'
 
 export {
@@ -9,14 +10,15 @@ export {
   type TaskAlertSettings,
 } from './task-alert-settings.ts'
 
-const ALERT_NAMESPACE = settingsNamespace(TASK_ALERT_SETTINGS_NAMESPACE)
-
 /**
  * Register the durable alert section when the Host composes settings.
+ *
+ * The namespace carries no caller-side branding: `settings.register` validates
+ * it and owns the registration's effect.
  * @param ctx - Host context that may acquire the settings service.
  */
 export function apply(ctx: Context): void {
   ctx.inject(['settings'], (settingsCtx) => {
-    settingsCtx.settings.register(ALERT_NAMESPACE, TaskAlertSettingsSchema)
+    settingsCtx.settings.register(TASK_ALERT_SETTINGS_NAMESPACE, TaskAlertSettingsSchema)
   })
 }

@@ -7,8 +7,9 @@
  * the live permission state and an authorize action beside the form.
  */
 
-import type { SettingsScope, SettingsScopeSnapshot, SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+// Type-only: the settings-namespace scope contract owned by the settings domain.
+import type { SettingsScope, SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
+import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { TaskAlertPermission } from './alert.ts'
 import {
   DEFAULT_TASK_ALERT_SETTINGS, type TaskAlertSettings,

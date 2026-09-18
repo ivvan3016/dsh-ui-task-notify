@@ -15,7 +15,7 @@ import css from './TaskAlertCard.module.css'
 /** Props the renderer binds for the task-alert card. */
 export type TaskAlertCardProps =
   PropsRuntime<'settings.plugin.item'>
-  & PropsLocale<'task-alert'>
+  & PropsLocale<'settings.taskAlert'>
   & InjectFace<TaskAlertCardFace>
 
 /** Copy and actions one boolean control needs. */

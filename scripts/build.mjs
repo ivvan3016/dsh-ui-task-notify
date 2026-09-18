@@ -4,8 +4,8 @@
  * assume the monorepo checkout. The node half is plain ESM with all dsh
  * runtime dependencies external; the browser half mirrors the monorepo
  * client preset's loader handoff (`window.__ModuleLoader__.load`) so the
- * dsh web module table can mount the row. React, runtime, and ui-primitives
- * come from the module table; schemastery and clsx are bundled in. CSS
+ * dsh web module table can mount the row. React, the client store, and
+ * ui-primitives come from the module table; schemastery and clsx are bundled in. CSS
  * Modules are rewritten to prefixed class names and injected as a
  * plugin-owned style tag, like the preset does. Type declarations are
  * deliberately not regenerated: the npm/tarball artifacts carry .d.ts from
@@ -20,19 +20,14 @@ const PKG = 'dsh-ui-task-notify'
 // Node half: dsh seams stay external (host-provided); schemastery is bundled
 // so the package installs with zero registry dependencies.
 await build({
-  entryPoints: { index: 'src/index.ts', invariant: 'src/invariant.ts' },
+  entryPoints: { index: 'src/index.ts' },
   bundle: true,
   platform: 'node',
   format: 'esm',
   target: 'es2024',
   external: [
     '@deepseek-ai/cordis',
-    '@deepseek-ai/dsh-invariants',
     '@deepseek-ai/dsh-settings',
-    '@deepseek-ai/dsh-client-locale',
-    '@deepseek-ai/dsh-client-runtime',
-    '@deepseek-ai/dsh-client-ui-settings',
-    '@deepseek-ai/dsh-client-ui-settings-plugins',
   ],
   outdir: 'lib',
   logLevel: 'warning',
@@ -87,7 +82,11 @@ await build({
   // Automatic JSX runtime: components never `import React`, so the classic
   // transform's `React.createElement` would ReferenceError at render time.
   jsx: 'automatic',
-  external: ['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-runtime/client', '@deepseek-ai/dsh-client-ui-primitives'],
+  // Module-table seed words only (platform-provided, never dynamic rows):
+  // `@deepseek-ai/dsh-client-store` owns the snapshot-store engine and
+  // `@deepseek-ai/dsh-client-ui-primitives` the icons. Every other dsh import
+  // in the browser half is type-only and erased, so it never becomes a require.
+  external: ['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-store', '@deepseek-ai/dsh-client-ui-primitives'],
   outdir: 'lib',
   plugins: [cssModules],
   banner: {

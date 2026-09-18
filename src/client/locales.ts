@@ -1,7 +1,7 @@
-/** `task-alert` namespace dictionaries. */
+/** `settings.taskAlert` namespace dictionaries. */
 
 /** Dictionary namespace owned by this plugin. */
-export const NS = 'task-alert'
+export const NS = 'settings.taskAlert'
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
@@ -73,5 +73,5 @@ export const en: Record<TaskAlertKey, string> = {
   'saveFailed': 'The deployment did not accept these values; they were left for you to correct.',
 }
 
-/** Key domain of the `task-alert` namespace (zh is the source of truth). */
+/** Key domain of the `settings.taskAlert` namespace (zh is the source of truth). */
 export type TaskAlertKey = keyof typeof zh
