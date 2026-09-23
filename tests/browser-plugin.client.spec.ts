@@ -1,24 +1,24 @@
 // @vitest-environment jsdom
 /**
  * ui-task-alert browser half: idle-edge detection over a driven sessions
- * list, the Windows-notification side effect, live settings gating, and
- * HMR-safe teardown.
+ * list, the waiting-on-the-user edge over the session UI adapter's status map,
+ * the Windows-notification side effect, live settings gating, and HMR-safe
+ * teardown.
  */
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
-import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { apply, inject } from '../src/client/index.ts'
 import { apply as applyNode } from '../src/index.ts'
-import { createIdleWatcher, type PendingInteractionView } from '../src/client/watcher.ts'
+import { createIdleWatcher } from '../src/client/watcher.ts'
 import { createTaskAlert } from '../src/client/alert.ts'
 import { en, NS, zh } from '../src/client/locales.ts'
 import {
-  DEFAULT_TASK_ALERT_SETTINGS, TASK_ALERT_SETTINGS_NAMESPACE,
+  DEFAULT_TASK_ALERT_SETTINGS, TASK_ALERT_ROW_CONFIG_KEY, TASK_ALERT_SETTINGS_NAMESPACE,
   type TaskAlertSettings,
 } from '../src/task-alert-settings.ts'
 
@@ -31,10 +31,7 @@ interface SessionSeed {
 
 /** Controllable sessions-list observable standing in for `ctx.sessions.list`. */
 class FakeList {
-  state: SessionListState = {
-    ids: [], byId: {}, current: undefined, phase: 'ready',
-    subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
-  }
+  state: SessionListState = { ids: [], byId: {}, phase: 'ready', projectionsBySession: {} }
   private readonly listeners = new Set<() => void>()
 
   getSnapshot(): SessionListState { return this.state }
@@ -72,31 +69,40 @@ class FakeList {
   }
 }
 
-/** Controllable pending-interaction observable standing in for `ctx.uiSession`. */
-class FakeInteractions {
-  private state: ReadonlyMap<SessionId, PendingInteractionView> = new Map()
+/**
+ * Controllable session-status observable standing in for
+ * `ctx.uiSession.sessionStatus`; the waiting side of the map is what the
+ * watcher reads.
+ */
+class FakeStatus {
+  private state: SessionStatusSnapshot = new Map()
   private readonly listeners = new Set<() => void>()
 
-  getSnapshot(): ReadonlyMap<SessionId, PendingInteractionView> { return this.state }
+  getSnapshot(): SessionStatusSnapshot { return this.state }
 
   subscribe(fn: () => void): () => void {
     this.listeners.add(fn)
     return () => { this.listeners.delete(fn) }
   }
 
-  /** Replace the waiting-set wholesale and notify. */
-  set(entries: readonly { id: string; kind: string }[]): void {
-    this.state = new Map(entries.map(entry => [
-      entry.id as SessionId,
-      { kind: entry.kind } satisfies PendingInteractionView,
-    ]))
+  /** Replace the waiting set wholesale, keeping list rows out of it. */
+  setWaiting(entries: readonly { id: string; kind: string }[]): void {
+    const next = new Map<SessionId, SessionStatusSnapshot extends ReadonlyMap<SessionId, infer S> ? S : never>()
+    for (const entry of entries) {
+      next.set(entry.id as SessionId, {
+        running: undefined,
+        pendingInteraction: { key: entry.id, kind: entry.kind, sessionId: entry.id as SessionId },
+        completionUnread: false,
+      })
+    }
+    this.state = next
     for (const fn of [...this.listeners]) fn()
   }
 }
 
-/** Controllable settings scope standing in for the ui-settings bound scope. */
-class FakeScope {
-  snapshot: SettingsScopeSnapshot<TaskAlertSettings>
+/** Controllable configuration form standing in for `ctx.configForms.get(ns)`. */
+class FakeForm implements ConfigForm<TaskAlertSettings> {
+  snapshot: ConfigFormSnapshot<TaskAlertSettings>
   private readonly listeners = new Set<() => void>()
 
   constructor(value?: TaskAlertSettings) {
@@ -106,14 +112,16 @@ class FakeScope {
     }
   }
 
-  getSnapshot(): SettingsScopeSnapshot<TaskAlertSettings> { return this.snapshot }
+  getSnapshot(): ConfigFormSnapshot<TaskAlertSettings> { return this.snapshot }
 
   subscribe(fn: () => void): () => void {
     this.listeners.add(fn)
     return () => { this.listeners.delete(fn) }
   }
 
-  set(field: string, value: unknown): Promise<void> {
+  mutate(): Promise<boolean> { return Promise.resolve(true) }
+
+  set(field: string, value: unknown): Promise<boolean> {
     const user = { ...(this.snapshot.user as Record<string, unknown> | undefined ?? {}) }
     user[field] = value
     this.snapshot = {
@@ -122,10 +130,10 @@ class FakeScope {
       value: { ...(this.snapshot.value ?? {}), [field]: value } as unknown as TaskAlertSettings,
     }
     for (const fn of [...this.listeners]) fn()
-    return Promise.resolve()
+    return Promise.resolve(true)
   }
 
-  unset(field: string): Promise<void> {
+  unset(field: string): Promise<boolean> {
     const user = Object.fromEntries(
       Object.entries(this.snapshot.user as Record<string, unknown> | undefined ?? {}).filter(([key]) => key !== field),
     )
@@ -138,11 +146,23 @@ class FakeScope {
       value: Object.keys(next).length > 0 ? next as unknown as TaskAlertSettings : undefined,
     }
     for (const fn of [...this.listeners]) fn()
-    return Promise.resolve()
+    return Promise.resolve(true)
   }
+}
 
-  /** The card never mutates path-addressed; the batch write path is a no-op stub. */
-  mutate(): Promise<void> { return Promise.resolve() }
+/** Minimal locale service standing in for `ctx.locale` (zh dictionaries). */
+function fakeLocale(): Record<string, unknown> {
+  const dictionaries = new Map<string, Record<string, string>>()
+  return {
+    register(ns: string, dicts: { zh: Record<string, string> }): () => void {
+      dictionaries.set(ns, dicts.zh)
+      return () => { dictionaries.delete(ns) }
+    },
+    bind: (ns: string) => (key: string) => dictionaries.get(ns)?.[key] ?? key,
+    getSnapshot: () => ({ revision: 0 }),
+    subscribe: () => () => {},
+    resolveText: (text: string) => text,
+  }
 }
 
 /** Hide/shown state behind `document.hidden`. */
@@ -154,8 +174,8 @@ interface Bench {
   ctx: Context
   fiber: ReturnType<Context['plugin']>
   list: FakeList
-  interactions: FakeInteractions
-  scope: FakeScope
+  status: FakeStatus
+  form: FakeForm
 }
 
 /** Notification double recording shown notifications. */
@@ -179,33 +199,41 @@ function stubNotification(permission: NotificationPermission = 'granted'): {
   return { requestPermission, shown, instances }
 }
 
-/** Boot the browser half over stubbed sessions/settings services and the real locale plugin. */
+/** Boot the browser half over stubbed services and the real renderer registry. */
 async function bench(value?: TaskAlertSettings): Promise<Bench> {
   const ctx = new Context()
   const list = new FakeList()
-  const interactions = new FakeInteractions()
-  const scope = new FakeScope(value)
+  const status = new FakeStatus()
+  const form = new FakeForm(value)
   await ctx.plugin(SlotRegistry).await()
   ctx.slots.register({
     name: 'root',
     children: {
-      // The locale plugin owns its General-section preference row.
-      'settings.general.item': { kind: 'list', scope: 'root' },
-      'settings.plugin.item': { kind: 'keyed', scope: 'root' },
+      // The Plugins page owns the row page this card occupies.
+      'plugins.row.config': { kind: 'keyed', scope: 'root' },
     },
   } as never, () => null)
   ctx.provide('sessions', { list } as never)
-  ctx.provide('uiSession', { pendingInteractions: interactions } as never)
-  ctx.provide('remote', { $on: () => () => {} } as never)
-  ctx.provide('settingsScope', {
-    bind: (spec: { namespace: string }) =>
-      spec.namespace === TASK_ALERT_SETTINGS_NAMESPACE ? scope : stubSettingsScope().scope,
+  ctx.provide('uiSession', { sessionStatus: status } as never)
+  ctx.provide('locale', fakeLocale() as never)
+  ctx.provide('configForms', {
+    get: (namespace: string) => {
+      expect(namespace).toBe(TASK_ALERT_SETTINGS_NAMESPACE)
+      return form
+    },
+    // The real service registers the contribution while the Host serves the
+    // namespace and disposes it when the namespace or the caller goes away.
+    whileServed: (namespaces: readonly string[], register: (served: ReadonlySet<string>) => () => void) =>
+      register(new Set(namespaces)),
   } as never)
-  await ctx.plugin({ inject: localeInject, apply: applyLocale }).await()
-  ctx.locale.setLocale('zh')
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
-  return { ctx, fiber, list, interactions, scope }
+  return { ctx, fiber, list, status, form }
+}
+
+/** The card's registered slot entry, or undefined before it lands. */
+function cardEntry(ctx: Context) {
+  return ctx.slots.entries('plugins.row.config').find(candidate => candidate.options.key === TASK_ALERT_ROW_CONFIG_KEY)
 }
 
 beforeEach(() => {
@@ -218,12 +246,12 @@ afterEach(() => {
 
 describe('ui-task-alert browser half', () => {
   it('declares the services it binds', () => {
-    expect(inject).toEqual(['sessions', 'uiSession', 'settingsScope', 'locale', 'slots'])
+    expect(inject).toEqual(['sessions', 'uiSession', 'configForms', 'locale', 'slots'])
   })
 
-  it('registers the Plugins card under its namespace and releases it with the fiber', async () => {
+  it('registers the Plugins row card under the Host entry and releases it with the fiber', async () => {
     const { ctx, fiber } = await bench()
-    const entry = ctx.slots.entries('settings.plugin.item').find(candidate => candidate.options.key === 'ui-task-alert')
+    const entry = cardEntry(ctx)
     expect(entry).toBeDefined()
     // StoredEntry.inject is declaration-typed ((...args: never[]) shape);
     // the erased registration widens it past a direct cast, so hop unknown.
@@ -238,19 +266,19 @@ describe('ui-task-alert browser half', () => {
     injected.authorize()
     await vi.waitFor(() => { expect(requestPermission).toHaveBeenCalled() })
     await fiber.dispose()
-    expect(ctx.slots.entries('settings.plugin.item').map(candidate => candidate.options.key)).not.toContain('ui-task-alert')
+    expect(cardEntry(ctx)).toBeUndefined()
   })
 
   it('honors the enabled master switch live', async () => {
-    const { list, scope } = await bench(DEFAULT_TASK_ALERT_SETTINGS)
+    const { list, form } = await bench(DEFAULT_TASK_ALERT_SETTINGS)
     const { shown } = stubNotification()
     setHidden(true)
-    await scope.set('enabled', false)
+    await form.set('enabled', false)
     list.set([{ id: 's1', running: true }])
     list.set([{ id: 's1', running: false }])
     expect(shown).toHaveLength(0)
 
-    await scope.set('enabled', true)
+    await form.set('enabled', true)
     list.set([{ id: 's1', running: true }])
     list.set([{ id: 's1', running: false }])
     expect(shown).toHaveLength(1)
@@ -287,16 +315,28 @@ describe('ui-task-alert browser half', () => {
   })
 
   it('ignores subagent sessions unless the preference includes them', async () => {
-    const { list, scope } = await bench(DEFAULT_TASK_ALERT_SETTINGS)
+    const { list, form } = await bench(DEFAULT_TASK_ALERT_SETTINGS)
     const { shown } = stubNotification()
     setHidden(true)
     list.set([{ id: 's1', running: true, origin: 'subagent' }])
     list.set([{ id: 's1', running: false, origin: 'subagent' }])
     expect(shown).toHaveLength(0)
 
-    await scope.set('includeSubagents', true)
+    await form.set('includeSubagents', true)
     list.set([{ id: 's1', running: true, origin: 'subagent' }])
     list.set([{ id: 's1', running: false, origin: 'subagent' }])
+    expect(shown).toHaveLength(1)
+  })
+
+  it('alerts once when a session starts waiting on the user', async () => {
+    const { list, status } = await bench(DEFAULT_TASK_ALERT_SETTINGS)
+    const { shown } = stubNotification()
+    setHidden(true)
+    list.set([{ id: 's1' }])
+    status.setWaiting([{ id: 's1', kind: 'approval' }])
+    expect(shown).toEqual([{ title: '有请求等待审批', options: { body: 's1', tag: 'dsh-task-alert' } }])
+    // A replacement request of the same kind does not re-alert.
+    status.setWaiting([{ id: 's1', kind: 'approval' }])
     expect(shown).toHaveLength(1)
   })
 
@@ -318,10 +358,8 @@ describe('ui-task-alert browser half', () => {
     const { ctx, fiber } = await bench()
     const translate = ctx.locale.bind(NS)
     expect(translate('title.done')).toBe(zh['title.done'])
-    ctx.locale.setLocale('en')
-    expect(translate('title.done')).toBe(en['title.done'])
     await fiber.dispose()
-    expect(translate('title.done')).not.toBe(en['title.done'])
+    expect(translate('title.done')).not.toBe(zh['title.done'])
   })
 
   it('keeps the English dictionary key-identical to the Chinese source of truth', () => {
@@ -332,14 +370,11 @@ describe('ui-task-alert browser half', () => {
 describe('idle watcher', () => {
   it('fires on running→idle edges, skips byId gaps, and prunes removed sessions', () => {
     const list = new FakeList()
-    const interactions = new FakeInteractions()
+    const status = new FakeStatus()
     const onIdle = vi.fn()
     const onInteraction = vi.fn()
-    const watcher = createIdleWatcher(list, interactions, () => false, onIdle, () => true, onInteraction)
-    list.rawState({
-      ids: ['missing' as SessionId], byId: {}, current: undefined, phase: 'ready',
-      subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
-    })
+    const watcher = createIdleWatcher(list, status, () => false, onIdle, () => true, onInteraction)
+    list.rawState({ ids: ['missing' as SessionId], byId: {}, phase: 'ready', projectionsBySession: {} })
     list.set([{ id: 'a', running: true }])
     list.set([{ id: 'a', running: false }])
     expect(onIdle).toHaveBeenCalledTimes(1)
@@ -354,11 +389,11 @@ describe('idle watcher', () => {
 
   it('filters subagent sessions by the live preference', () => {
     const list = new FakeList()
-    const interactions = new FakeInteractions()
+    const status = new FakeStatus()
     const onIdle = vi.fn()
     const onInteraction = vi.fn()
     let includeSubagents = false
-    const watcher = createIdleWatcher(list, interactions, () => includeSubagents, onIdle, () => true, onInteraction)
+    const watcher = createIdleWatcher(list, status, () => includeSubagents, onIdle, () => true, onInteraction)
     list.set([{ id: 'child', running: true, origin: 'subagent' }])
     list.set([{ id: 'child', running: false, origin: 'subagent' }])
     expect(onIdle).not.toHaveBeenCalled()
@@ -371,55 +406,55 @@ describe('idle watcher', () => {
 
   it('fires once per pending-interaction kind, keyed by kind, and prunes on removal', () => {
     const list = new FakeList()
-    const interactions = new FakeInteractions()
+    const status = new FakeStatus()
     const onIdle = vi.fn()
     const onInteraction = vi.fn()
-    const watcher = createIdleWatcher(list, interactions, () => false, onIdle, () => true, onInteraction)
+    const watcher = createIdleWatcher(list, status, () => false, onIdle, () => true, onInteraction)
     list.set([{ id: 'a' }])
-    interactions.set([{ id: 'a', kind: 'question' }])
+    status.setWaiting([{ id: 'a', kind: 'question' }])
     expect(onInteraction).toHaveBeenCalledTimes(1)
     expect(onInteraction).toHaveBeenCalledWith('a', 'question', 'a')
     // A repeated publication of the same kind must not re-alert.
-    interactions.set([{ id: 'a', kind: 'question' }])
+    status.setWaiting([{ id: 'a', kind: 'question' }])
     expect(onInteraction).toHaveBeenCalledTimes(1)
     // A different kind is a fresh edge.
-    interactions.set([{ id: 'a', kind: 'approval' }])
+    status.setWaiting([{ id: 'a', kind: 'approval' }])
     expect(onInteraction).toHaveBeenCalledTimes(2)
     expect(onInteraction).toHaveBeenLastCalledWith('a', 'approval', 'a')
     // Settling clears the ledger so a later re-ask re-alerts.
-    interactions.set([])
-    interactions.set([{ id: 'a', kind: 'question' }])
+    status.setWaiting([])
+    status.setWaiting([{ id: 'a', kind: 'question' }])
     expect(onInteraction).toHaveBeenCalledTimes(3)
     watcher.dispose()
   })
 
   it('ignores interaction kinds this plugin ships no copy for', () => {
     const list = new FakeList()
-    const interactions = new FakeInteractions()
+    const status = new FakeStatus()
     const onIdle = vi.fn()
     const onInteraction = vi.fn()
-    const watcher = createIdleWatcher(list, interactions, () => false, onIdle, () => true, onInteraction)
+    const watcher = createIdleWatcher(list, status, () => false, onIdle, () => true, onInteraction)
     list.set([{ id: 'a' }])
-    interactions.set([{ id: 'a', kind: 'credential' }])
+    status.setWaiting([{ id: 'a', kind: 'credential' }])
     expect(onInteraction).not.toHaveBeenCalled()
     // An unknown kind does not mask the alertable one that follows it.
-    interactions.set([{ id: 'a', kind: 'approval' }])
+    status.setWaiting([{ id: 'a', kind: 'approval' }])
     expect(onInteraction).toHaveBeenCalledTimes(1)
     watcher.dispose()
   })
 
   it('skips interaction edges when the preference is off', () => {
     const list = new FakeList()
-    const interactions = new FakeInteractions()
+    const status = new FakeStatus()
     const onIdle = vi.fn()
     const onInteraction = vi.fn()
     let interactionAlert = false
-    const watcher = createIdleWatcher(list, interactions, () => false, onIdle, () => interactionAlert, onInteraction)
+    const watcher = createIdleWatcher(list, status, () => false, onIdle, () => interactionAlert, onInteraction)
     list.set([{ id: 'a' }])
-    interactions.set([{ id: 'a', kind: 'approval' }])
+    status.setWaiting([{ id: 'a', kind: 'approval' }])
     expect(onInteraction).not.toHaveBeenCalled()
     interactionAlert = true
-    interactions.set([{ id: 'a', kind: 'approval' }])
+    status.setWaiting([{ id: 'a', kind: 'approval' }])
     expect(onInteraction).toHaveBeenCalledTimes(1)
     watcher.dispose()
   })
@@ -507,7 +542,9 @@ describe('task alert engine', () => {
 })
 
 describe('ui-task-alert node half', () => {
-  it('contributes no host behavior beyond the settings registration', () => {
-    expect(() => { applyNode(new Context()) }).not.toThrow()
+  it('mounts without a settings service and waits for it', async () => {
+    const ctx = new Context()
+    await ctx.plugin({ apply: applyNode }).await()
+    expect(ctx.get('settings')).toBeUndefined()
   })
 })

@@ -1,18 +1,18 @@
 /**
  * Task-complete alert plugin, browser half: watches the sessions list for
- * agent running→idle edges and the session UI adapter's pending-interaction
- * map for sessions waiting on the user, and, while the page is hidden, raises
- * a browser (Windows) notification. The behavior gates are durable preferences
- * in the `ui-task-alert` settings namespace, editable through the card this
- * half registers in the Plugins configuration tab; the package issues no RPC
- * and renders nothing outside that card.
+ * agent running→idle edges and the session UI adapter's status map for
+ * sessions waiting on the user, and, while the page is hidden, raises a
+ * browser (Windows) notification. The behavior gates are the live preferences
+ * of the `ui-task-alert` Host entry, which the running page reads through the
+ * settings service and edits through the card this half registers on the
+ * Plugins page; the package issues no RPC and renders nothing outside it.
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-// Type-only: the ctx.settingsScope Context merge and the SettingsScope contract.
+// Type-only: the ConfigForm contract and the ctx.configForms Context merge.
 // Cross-plugin collaboration goes through the service, never a value import
 // (client bundle purity gate).
-import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
-// Type-only: the ctx.uiSession Context merge; its pending-interaction map is
+import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
+// Type-only: the ctx.uiSession Context merge; its per-session status map is
 // the live "waiting on the user" source this half alerts on.
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 // Type-only: the ctx.sessions Context merge (the list snapshot feed).
@@ -21,11 +21,11 @@ import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-// Type-only: the settings.plugin.item SlotMap merge declared by the Plugins
-// configuration section (the card registers into that keyed slot).
-import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
+// Type-only: the plugins.row.config SlotMap merge declared by the Plugins page
+// (the row page this card occupies).
+import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import {
-  DEFAULT_TASK_ALERT_SETTINGS, TASK_ALERT_SETTINGS_NAMESPACE,
+  DEFAULT_TASK_ALERT_SETTINGS, TASK_ALERT_ROW_CONFIG_KEY, TASK_ALERT_SETTINGS_NAMESPACE,
   type TaskAlertSettings,
 } from '../task-alert-settings.ts'
 import { createTaskAlert } from './alert.ts'
@@ -41,36 +41,36 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-/** Required services: the sessions list, the session UI adapter, the settings scope, locale, and slots. */
-export const inject = ['sessions', 'uiSession', 'settingsScope', 'locale', 'slots']
+/** Required services: the sessions list, the session UI adapter, the settings forms, locale, and slots. */
+export const inject = ['sessions', 'uiSession', 'configForms', 'locale', 'slots']
 
 /**
- * Resolve the durable preferences, falling back to the schema defaults until
- * the first Host sync resolves the section.
- * @param scope - the bound task-alert settings scope.
+ * Resolve the live preferences, falling back to the schema defaults until the
+ * first accepted section arrives.
+ * @param form - the Host entry's shared configuration form.
  * @returns the effective settings.
  */
-function readSettings(scope: SettingsScope<TaskAlertSettings>): TaskAlertSettings {
-  const value = scope.getSnapshot().value
+function readSettings(form: ConfigForm<TaskAlertSettings>): TaskAlertSettings {
+  const value = form.getSnapshot().value
   return { ...DEFAULT_TASK_ALERT_SETTINGS, ...(value ?? {}) }
 }
 
 /**
- * Client plugin body: register the dictionaries, bind the settings scope, wire
- * the idle and pending-interaction watcher to the alert engine, and register
- * the Plugins card that edits the preferences.
+ * Client plugin body: register the dictionaries, bind the Host entry's
+ * configuration form, wire the idle and pending-interaction watcher to the
+ * alert engine, and register the Plugins-page card that edits the preferences.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-task-alert: dictionaries')
-  const scope = ctx.settingsScope.bind<TaskAlertSettings>({ namespace: TASK_ALERT_SETTINGS_NAMESPACE })
-  const alert = createTaskAlert(ctx.locale.bind(NS), () => readSettings(scope))
+  const form = ctx.configForms.get<TaskAlertSettings>(TASK_ALERT_SETTINGS_NAMESPACE)
+  const alert = createTaskAlert(ctx.locale.bind(NS), () => readSettings(form))
   const watcher = createIdleWatcher(
     ctx.sessions.list,
-    ctx.uiSession.pendingInteractions,
-    () => readSettings(scope).includeSubagents,
+    ctx.uiSession.sessionStatus,
+    () => readSettings(form).includeSubagents,
     (_sessionId, sessionTitle) => { alert.notify(sessionTitle) },
-    () => readSettings(scope).interactionAlert,
+    () => readSettings(form).interactionAlert,
     (_sessionId, kind, sessionTitle) => { alert.notifyInteraction(kind, sessionTitle) },
   )
   ctx.effect(() => () => {
@@ -78,14 +78,20 @@ export function apply(ctx: ClientContext): void {
   }, 'ui-task-alert: idle watcher')
 
   const card = new TaskAlertCardController(
-    scope,
+    form,
     () => alert.notificationPermission(),
     () => alert.requestNotificationPermission(),
   )
-  ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
-    name: 'settings.plugin.item',
-    key: TASK_ALERT_SETTINGS_NAMESPACE,
-    locale: NS,
-    inject: () => card.inject(),
-  }, TaskAlertCard))
+  // The card appears only while the Host serves the namespace: an entry that
+  // publishes no live settings has no section, and a deployment without this
+  // plugin shows no trace of the page.
+  ctx.effect(() => ctx.configForms.whileServed([TASK_ALERT_SETTINGS_NAMESPACE], () => ctx.slots.inject(
+    'plugins.row.config',
+    () => ctx.slots.register({
+      name: 'plugins.row.config',
+      key: TASK_ALERT_ROW_CONFIG_KEY,
+      locale: NS,
+      inject: () => card.inject(),
+    }, TaskAlertCard),
+  )), 'ui-task-alert: settings card')
 }

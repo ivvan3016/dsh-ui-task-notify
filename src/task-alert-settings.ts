@@ -1,11 +1,30 @@
-/** Task-complete alert preferences stored in the Host user-settings document. */
+/**
+ * Task-complete alert preferences, shared by both halves: the Host entry that
+ * owns them, the plain section the browser binds, and the defaults applied
+ * before the first accepted section arrives. Deliberately dependency-free —
+ * the browser half imports this module, so nothing here may pull a schema
+ * library or any other Node-only code into the client bundle.
+ */
 
-import z from '@deepseek-ai/schemastery'
-
-/** Settings namespace owned by the task-alert plugin. */
+/**
+ * Settings namespace. A dsh profile serves one settings section per active
+ * plugin entry, keyed by that entry's id, so this string is the entry id the
+ * bundle patch mounts (`cordis.patch.yml`) — not an independently registered
+ * namespace. Renaming it detaches every stored user value from the card.
+ */
 export const TASK_ALERT_SETTINGS_NAMESPACE = 'ui-task-alert'
 
-/** Durable task-alert section shared by the Host schema and the browser scope. */
+/** Profile package whose bundle patch mounts this plugin. */
+export const TASK_ALERT_PACKAGE_NAME = 'dsh-ui-task-notify'
+
+/**
+ * Key the Plugins page looks this row's configuration up under: the page keys
+ * a row's page by `<bundle package name>#<row id>`, and the row id is the
+ * settings namespace.
+ */
+export const TASK_ALERT_ROW_CONFIG_KEY = `${TASK_ALERT_PACKAGE_NAME}#${TASK_ALERT_SETTINGS_NAMESPACE}`
+
+/** Durable task-alert section shared by the Host Config and the browser form. */
 export interface TaskAlertSettings {
   /** Master switch: when false the alert does nothing. */
   enabled: boolean
@@ -24,11 +43,3 @@ export const DEFAULT_TASK_ALERT_SETTINGS: TaskAlertSettings = {
   includeSubagents: false,
   interactionAlert: true,
 }
-
-/** Durable task-alert schema; also the wire envelope the browser scope validates against. */
-export const TaskAlertSettingsSchema: z<TaskAlertSettings> = z.object({
-  enabled: z.boolean().default(true),
-  onlyWhenHidden: z.boolean().default(true),
-  includeSubagents: z.boolean().default(false),
-  interactionAlert: z.boolean().default(true),
-})

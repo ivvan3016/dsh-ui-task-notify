@@ -7,8 +7,8 @@
  * the live permission state and an authorize action beside the form.
  */
 
-// Type-only: the settings-namespace scope contract owned by the settings domain.
-import type { SettingsScope, SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
+// Type-only: the per-entry configuration form contract owned by the settings domain.
+import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { TaskAlertPermission } from './alert.ts'
 import {
@@ -70,10 +70,10 @@ export interface TaskAlertCardFace extends TaskAlertCardActions {
 }
 
 /**
- * Bridges the `ui-task-alert` scope onto the card's staged form, and the
- * browser notification permission onto the authorize button. The store is
- * created once so the renderer's hook binding keeps one stable source across
- * re-registrations.
+ * Bridges the `ui-task-alert` entry's configuration form onto the card's
+ * staged form, and the browser notification permission onto the authorize
+ * button. The store is created once so the renderer's hook binding keeps one
+ * stable source across re-registrations.
  */
 export class TaskAlertCardController {
   private readonly staged = new Map<TaskAlertField, boolean | null>()
@@ -83,13 +83,13 @@ export class TaskAlertCardController {
   private failed = false
 
   /**
-   * @param scope - the bound settings scope for the `ui-task-alert` namespace.
+   * @param scope - the Host entry's shared configuration form.
    * @param readPermission - read the current browser notification permission.
    * @param requestPermission - request browser notification permission (user
    *   gesture context), resolving to the permission after the request settles.
    */
   constructor(
-    private readonly scope: SettingsScope<TaskAlertSettings>,
+    private readonly scope: ConfigForm<TaskAlertSettings>,
     private readonly readPermission: () => TaskAlertPermission,
     private readonly requestPermission: () => Promise<TaskAlertPermission>,
   ) {
@@ -187,7 +187,7 @@ export class TaskAlertCardController {
     for (const listener of this.listeners) listener()
   }
 
-  private snapshotOf(): SettingsScopeSnapshot<TaskAlertSettings> {
+  private snapshotOf(): ConfigFormSnapshot<TaskAlertSettings> {
     return this.scope.getSnapshot()
   }
 

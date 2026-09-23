@@ -21,6 +21,8 @@ allowBuilds:
 
 The key is bound to one resolved commit — a bare package name does not match, and it changes only when you update the dependency to a newer commit.
 
+Restart the `dsh web` process after installing or updating: the client plugin roster is composed when the server boots.
+
 ## Uninstall
 
 ```sh
@@ -29,9 +31,9 @@ dsh plugin --profile web remove dsh-ui-task-notify
 
 Removing the plugin drops its bundle layer and removes the package from the profile.
 
-Web task-complete alert plugin: when an agent finishes — or starts waiting on you for an approval, question, or plan review — while the page is hidden, it raises a browser (Windows) notification, a system toast that carries its own sound and stays visible even while the whole window is minimized. It renders nothing beyond its settings card and issues no RPC: both triggers are host-authoritative signals already streamed to the browser. The **agent idle edge** comes from `ctx.sessions.list` (the Host pushes `host/session-status` frames from `agent/status`, and the client runtime folds them into each list row's `running` bit); the **pending-interaction edge** comes from `ctx.uiSession.pendingInteractions`, the map the Session UI adapter publishes for sessions waiting on the user (`approval`, `question`, and `plan-review` domains). Because `running` spans the driver's whole drain interval, a multi-turn goal alerts exactly once, at true quiescence, rather than once per turn.
+Web task-complete alert plugin: when an agent finishes — or starts waiting on you for an approval, question, or plan review — while the page is hidden, it raises a browser (Windows) notification, a system toast that carries its own sound and stays visible even while the whole window is minimized. It renders nothing beyond its settings card and issues no RPC: both triggers are host-authoritative signals already streamed to the browser. The **agent idle edge** comes from `ctx.sessions.list` (the Host pushes `host/session-status` frames from `agent/status`, and the client folds them into each list row's `running` bit); the **pending-interaction edge** comes from `ctx.uiSession.sessionStatus`, the per-Session status map the Session UI adapter publishes, whose `pendingInteraction` carries the domain-owned kind (`approval`, `question`, and `plan-review`). Because `running` spans the driver's whole drain interval, a multi-turn goal alerts exactly once, at true quiescence, rather than once per turn.
 
-The behavior gates are durable preferences in the `ui-task-alert` settings namespace, registered by the package's node half and bound through `ctx.settingsScope`:
+The behavior gates are the live preferences of the plugin's Host entry — the `ui-task-alert` settings section, declared as the entry's Config by the package's node half and read by the running page through `ctx.configForms`:
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -40,7 +42,7 @@ The behavior gates are durable preferences in the `ui-task-alert` settings names
 | `includeSubagents` | `false` | Also alert when a subagent session finishes; top-level sessions only by default. |
 | `interactionAlert` | `true` | Also alert when a session is waiting on you (approval, question, plan review). |
 
-**Settings** → **Plugins** → **Plugin configuration** shows a task-complete alert card. The card's **系统通知 / System notification** row is an **authorize button**, not a setting: click **授权** to ask the browser for notification permission; once granted the button becomes disabled and reads **已授权**, and a finished agent (or one waiting on you) raises the Windows toast (with the system notification sound) even with the whole browser window minimized. A denied permission reads **已拒绝** and must be re-granted in the browser's site settings; an environment without the Notification API reads **不支持**. The boolean fields below stage save/discard with per-field reset to the composed default and override markers; toggling `enabled` off takes effect immediately for the running page — the alert checks the section at every idle edge.
+**Plugins** (sidebar) → **`dsh-ui-task-notify`** → the `ui-task-alert` row's configure page shows the task-complete alert card. The card's **系统通知 / System notification** row is an **authorize button**, not a setting: click **授权** to ask the browser for notification permission; once granted the button becomes disabled and reads **已授权**, and a finished agent (or one waiting on you) raises the Windows toast (with the system notification sound) even with the whole browser window minimized. A denied permission reads **已拒绝** and must be re-granted in the browser's site settings; an environment without the Notification API reads **不支持**. The boolean fields below stage save/discard with per-field reset to the composed default and override markers; toggling `enabled` off takes effect immediately for the running page — the alert reads the section at every edge.
 
 An edge observed while the page is visible is consumed without alerting, so returning later never fires a stale reminder; an edge missed during a disconnect alerts on the reconnect resync, which is the "finished while you were away" case. A pending-interaction edge fires once per interaction kind, so a replacement request of the same kind does not re-alert.
 
@@ -56,6 +58,7 @@ None; the package never assembles or sends provider requests.
 
 - **A closed or discarded browser tab cannot alert** — the page must be alive for the notification; a fully closed browser or a memory-reclaimed tab stays silent until reopened. The notification additionally needs the browser's notification permission (a denied permission is sticky until changed in the browser's site settings).
 - **Subagent completions are quiet by default** — the `includeSubagents` preference exists but defaults to `false`; flip it in the card (or the settings document) to alert on every child session.
+- **The settings section is the Host entry, not an independently named namespace** — a profile serves one `Config` section per active entry, so these preferences live under the entry id the bundle patch mounts (`ui-task-alert`). A profile patch that renames that row, or that mounts the package under another id, detaches the card from the stored values; the card itself is keyed by `<package>#<row id>` for the same reason.
 - **Published declarations carry source specifiers** — `lib/types` mirrors `src/`, so a relative import inside a `.d.ts` reads `./locales.ts` and resolves only in a TypeScript workspace with `allowImportingTsExtensions`; no `.js` ships beside them. The dsh runtime reads only `lib/index.js` and `lib/client.js`, never these types.
 
-**Runtime invariant:** No companion is published. The package observes two client-owned sources and raises a browser notification; it owns no event protocol or mutable relation whose independent observations could diverge. The settings registration, the watcher edges, and their disposal are covered by this package's behavior specs.
+**Runtime invariant:** No companion is published. The package observes two client-owned sources and raises a browser notification; it owns no event protocol or mutable relation whose independent observations could diverge. The entry Config, the watch edges, and their disposal are covered by this package's behavior specs.

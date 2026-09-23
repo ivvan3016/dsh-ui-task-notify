@@ -4,12 +4,11 @@
  * assume the monorepo checkout. The node half is plain ESM with all dsh
  * runtime dependencies external; the browser half mirrors the monorepo
  * client preset's loader handoff (`window.__ModuleLoader__.load`) so the
- * dsh web module table can mount the row. React, the client store, and
- * ui-primitives come from the module table; schemastery and clsx are bundled in. CSS
- * Modules are rewritten to prefixed class names and injected as a
- * plugin-owned style tag, like the preset does. Type declarations are
- * deliberately not regenerated: the npm/tarball artifacts carry .d.ts from
- * the monorepo build.
+ * dsh web module table can mount the row. React and the client store come
+ * from the module table; schemastery is bundled in. CSS Modules are rewritten
+ * to prefixed class names and injected as a plugin-owned style tag, like the
+ * preset does. Type declarations are deliberately not regenerated: the
+ * npm/tarball artifacts carry .d.ts from the monorepo build.
  */
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
@@ -83,10 +82,10 @@ await build({
   // transform's `React.createElement` would ReferenceError at render time.
   jsx: 'automatic',
   // Module-table seed words only (platform-provided, never dynamic rows):
-  // `@deepseek-ai/dsh-client-store` owns the snapshot-store engine and
-  // `@deepseek-ai/dsh-client-ui-primitives` the icons. Every other dsh import
-  // in the browser half is type-only and erased, so it never becomes a require.
-  external: ['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-store', '@deepseek-ai/dsh-client-ui-primitives'],
+  // `@deepseek-ai/dsh-client-store` owns the snapshot-store engine. Every other
+  // dsh import in the browser half is type-only and erased, so it never becomes
+  // a require.
+  external: ['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-store'],
   outdir: 'lib',
   plugins: [cssModules],
   banner: {

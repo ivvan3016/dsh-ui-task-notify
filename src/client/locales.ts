@@ -7,7 +7,6 @@ export const NS = 'settings.taskAlert'
 export const zh = {
   'title.done': 'dsh 已完成',
   'title.interaction': 'dsh 需要你处理',
-  'card.title': '任务完成提醒',
   'card.description': 'agent 完成任务或需要你处理时弹出 Windows 系统通知。',
   'field.enabled': '启用提醒',
   'field.enabled.hint': '关闭后 agent 完成任务或需要你处理时不再发出任何提醒。',
@@ -29,12 +28,9 @@ export const zh = {
   'overridden': '已覆盖',
   'reset': '恢复默认',
   'readOnly': '本部署的设置为只读。',
-  'expand': '展开设置',
-  'collapse': '收起设置',
   'save': '保存',
   'saving': '保存中…',
   'discard': '放弃修改',
-  'unsaved': '未保存',
   'saveFailed': '本部署没有接受这些值，已保留供你修改。',
 } as const
 
@@ -42,7 +38,6 @@ export const zh = {
 export const en: Record<TaskAlertKey, string> = {
   'title.done': 'dsh completed',
   'title.interaction': 'dsh needs your input',
-  'card.title': 'Task-complete alert',
   'card.description': 'Shows a Windows notification when an agent finishes or needs your input.',
   'field.enabled': 'Enable the alert',
   'field.enabled.hint': 'When off, a finished agent or one waiting on you raises no reminder at all.',
@@ -64,12 +59,9 @@ export const en: Record<TaskAlertKey, string> = {
   'overridden': 'Overridden',
   'reset': 'Reset to default',
   'readOnly': 'This deployment stores settings read-only.',
-  'expand': 'Show settings',
-  'collapse': 'Hide settings',
   'save': 'Save',
   'saving': 'Saving…',
   'discard': 'Discard',
-  'unsaved': 'Unsaved',
   'saveFailed': 'The deployment did not accept these values; they were left for you to correct.',
 }
 
